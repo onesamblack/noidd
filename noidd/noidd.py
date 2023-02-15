@@ -213,6 +213,7 @@ class Watcher:
 
     async def check_db_checksums(self):
         while True:
+            messages = []
             f = await self.fs_files.get()
             cs = await asyncio.to_thread(self._check_db, filename=f[0])
             if cs is None:
@@ -223,7 +224,10 @@ class Watcher:
                 # create a notification
                 stat = await aiofiles.os.stat(str(f[0]))
                 st_time = stat.st_time
-                notif = await self.notifier.notify(type_="created", f=f[0], t=st_time)
+                coros = []
+                for notifier in self.notifiers:
+                    coros.append(notifier.notify,type_="created", f=f[0], t=st_time) 
+                await asyncio.gather(*coros)
             else:
                 if cs != f[1]:
                     # the checksum didn't match
