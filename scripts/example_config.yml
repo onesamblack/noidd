@@ -1,0 +1,11 @@
+---
+checksum_period: 3600
+watch_directories:
+  - "/etc"
+  - "/usr/lib"
+notification_sources:
+ - twilio:
+   recipient_numbers: []
+   twilio_api_key: '...'
+   twilio_sid_token: '....'
+   twilio_from_number: '....'
