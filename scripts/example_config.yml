@@ -1,11 +1,31 @@
 ---
-checksum_period: 3600
-watch_directories:
-  - "/etc"
-  - "/usr/lib"
-notification_sources:
- - twilio:
-   recipient_numbers: []
+periodicity: 3600
+noidd_root: "/home/user/noidd"
+leveldb: ""
+watch:
+  - name: "watch_etc"
+    type: "dir"
+    root_dir: "/etc"
+  - name: "watch_all_c_files"
+    type: "glob"
+    glob: "/path/to/my/dir/*.cc"
+  - name: "watch_my_resolv_configs"
+    type: "filelist"
+    files:
+      - "/etc/resolv.conf"
+      - "/lib/systemd/systemdresolv.conf"
+notifiers:
+ - type: "twilio"
    twilio_api_key: '...'
    twilio_sid_token: '....'
    twilio_from_number: '....'
+   recipient_numbers:
+     - "+15557655555"
+   batch: true
+ - type: "smtp"
+   from_address: "dude@sup.com"
+   recipients:
+     - "peter@initech.com"
+     - "jim@dundermifflin"
+     - "THEmichaelbolton@initech.com"
+   template: "notifications.html"
