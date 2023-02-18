@@ -1,54 +1,8 @@
 import xxhash
+import struct
 import asyncio
-from aiofiles import AIOFile, Reader
-
-
-
-def check_leveldb(self, filename: str) -> str:
-        """returns the hash for the filename from the db instance
-
-        **Note**: this is a blocking task
-
-        Parameters
-        ----------
-        filename : str
-            filename
-        """
-        cs = self.db.get(filename)
-        return cs
-
-def add_checksum_to_leveldb(self, filename: str, checksum: str):
-        """adds a checksum to the db
-
-        Parameters
-        ----------
-        filename : str
-            filename
-        checksum : str
-            checksum
-        """
-        self.db.put(str(filename).encode(), str(checksum).encode())
-
-
-
-
-def get_db(*args, **kwargs) -> Sequence[plyvel.PrefixedDB]:
-    """get_db.
-
-    Parameters
-    ----------
-    args :
-        args
-    kwargs :
-        kwargs
-
-    Returns
-    -------
-    Sequence[plyvel.PrefixedDB]
-
-    """
-    db_filename = config["db_file"]
-    db = plyvel.DB(db_filename, **config["db_options"])
+import plyvel
+from aiofile import AIOFile, Reader
 
 async def xxsum(filename: str) -> str:
     """calculates a filehash using xxHash
@@ -71,5 +25,93 @@ async def xxsum(filename: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+async def leveldb_aget(db:plyvel.DB, 
+                       key: str) -> str:
+    """leveldb_aget.
+
+    Parameters
+    ----------
+    db : plyvel.DB
+        db
+    key : str
+        key
+
+    Returns
+    -------
+    str
+
+    """
+    v = await asyncio.to_thread(db.get(key.encode("utf-8")))
+    return v
+
+async def leveldb_aput(db:plyvel.DB,
+                       key: str, 
+                       value: str):
+    """leveldb_aput.
+
+    Parameters
+    ----------
+    db : plyvel.DB
+        db
+    key : str
+        key
+    value : str
+        value
+    """
+       
+    if type(value) == float:
+        value = struct.pack("f", value)
+    else:
+        value = value.encode("utf-8")
+    await asyncio.to_thread(db.put(key.encode("utf-8"), value))
+
+async def leveldb_adelete(db:plyvel.DB,
+        key: str):
+    """leveldb_adelete.
+
+    Parameters
+    ----------
+    db : plyvel.DB
+        db
+    key : str
+        key
+    """
+       
+    await asyncio.to_thread(db.delete(key.encode("utf-8"), sync=True))
 
 
+class AsyncLevelDBIterator: 
+    """
+    see https://plyvel.readthedocs.io/en/latest/api.html#RawIterator
+    for available kwargs
+    """
+    def __init__(self, db:plyvel.DB, **kwargs):
+        """__init__.
+
+        Parameters
+        ----------
+        db : plyvel.DB
+            db
+        kwargs :
+            kwargs
+        """
+        self.db = db
+        self.iter_ = db.raw_iterator(**kwargs)
+        self.iter_.seek_to_first()
+    def valid(self):
+        """valid.
+        """
+        return self.iter_.valid() 
+    def __aiter__(self):
+        """__aiter__.
+        """
+        return self
+    async def __anext__(self):
+        """__anext__.
+        """
+        try:
+            current_item = self.iter_.item()
+            self.iter_.next()
+            return current_item
+        except plyvel._plyvel.IteratorInvalidError:
+            raise StopAsyncIteration
