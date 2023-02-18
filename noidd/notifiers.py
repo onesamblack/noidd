@@ -148,7 +148,7 @@ class Notifier:
         Parameters
         ----------
         message_format : str
-            one of 'py', 'json'. If 'py', the messages are output as dicts.
+            one of 'py', 'json'. If 'py', the messages are outut as dicts.
             if 'json', the message is signed using HMAC-SHA256 and is
             output as json.
         """
@@ -229,4 +229,4 @@ class Notifier:
         """
         pass
 
-
+p
