@@ -1,7 +1,8 @@
 import pylyvel
 import asyncio
+import aiofiles
+from utils import leveldb_aput, leveldb_aget, leveldb_adelete, AsyncLevelDBIterator
 from typing import Optional, Sequence, Union
-from .utils  import check_leveldb, add_checksum_to_leveldb
 
 class Watcher:
     """
@@ -12,9 +13,12 @@ class Watcher:
 
     def __init__(
         self,
-        glob: str,
         db: pylyvel.PrefixedDB,
-        notifiers: Union[Notifier,Sequence[Notifier]],
+        initialized:bool,
+        notifiers: Sequence[Notifier],
+        glob: Optional[str] = None,
+        filelist: Optional[Sequence]=None,
+        root_dir: Optional[str] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         """__init__.
@@ -31,69 +35,83 @@ class Watcher:
             loop
         """
         self._loop = loop or asyncio.get_event_loop()
+        self.db = db
+        self.initialized = initialized
+        self.notifiers = notifiers
         self.glob = glob
-        if type(notifier) == Notifier:
-            self.notifiers = [notifier]
-        else:
-            self.notifiers = notifiers
+        self.filelist = filelist
+        self.root_dir = root_dir
+        self.snapshot = self.db.snapshot()
         self.checksums = asyncio.Queue()
+        for n in self.notifiers:
+            n.add_watcher()
 
-    async def check_db_checksums(self):
-        """Computes checksums for files in the watched directory
-        
-        This uses asyncio.to_thread for blocking tasks
+    async def notify_all(self, type_:str, **kwargs):
+        coros = []
+        for notifier in self.notifiers:
+            coros.append(notifier.notify,type_=type_, **kwargs) 
+        await asyncio.gather(*coros)
 
-        If a checksum didn't exist in the db, a 'created' notification is sent
-        and the checksum is added to the db
-        
-        If a checksum didn't match, a 'modified' notification is sent
-
-        """
+    async def verify_checksums(self):
         while True:
             messages = []
-            f = await self.fs_files.get()
-            cs = await asyncio.to_thread(check_leveldb, filename=f[0])
-            if cs is None:
-                # the checksum didn't exist - new file
-                await asyncio.to_thread(
-                    add_checksum_to_leveldb, filename=f[0], checksum=f[1]
-                )
-                # create a notification
-                stat = await aiofiles.os.stat(str(f[0]))
-                st_time = stat.st_time
-                coros = []
-                for notifier in self.notifiers:
-                    coros.append(notifier.notify,type_="created", f=f[0], t=st_time) 
-                await asyncio.gather(*coros)
+            f = await self.checksums.get()
+            if not self.initialized:
+                # running for the first time
+                await leveldb_aput(db=self.db, key=f[0], value=f[1])
             else:
-                if cs != f[1]:
-                    # the checksum didn't match
+                cs = await utils.leveldb_aget(db=self.db, key=f[0])
+                if cs is None:
+                    # the checksum didn't exist - new file
+                    # create a notification
                     stat = await aiofiles.os.stat(str(f[0]))
                     st_time = stat.st_time
-                    notif = self.notifier.notify(type_="modified", f=f[0], t=st_time)
-            if f is None:
-                notif = self.notifier.notify(type_="done")
+                    await self.notify_all(type_="created", f=f[0], t=st_time)
+                    # add it 
+                    await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                else:
+                    if cs != f[1]:
+                        # the checksum didn't match
+                        stat = await aiofiles.os.stat(str(f[0]))
+                        st_time = stat.st_time
+                        await self.notify_all(type_="modified", f=f[0], t=st_time)
+                        # add it 
+                        await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                if f is None:
+                    # no more files to check
+                    notif = self.notify_all(type_="done")
+                    self.checksums.task_done()
+                    break
 
-        self.fs_checksums.task_done()
-
-    async def get_fs_checksums(self):
+            self.fs_checksums.task_done()
+        if not self.initialized:
+            # add an intialized timestamp
+            await leveldb_adelete(db=self.db, key="initialized", value=time.time())
+    async def get_current_checksums(self):
         """get_fs_checksums.
         """
         async for f in asyncpath.rglob(self.file_glob):
             cs = await xxsum(f)
-            await self.fs_checksums.put((f, cs))
-        await self.fs_checksums.put(None)
+            self.checksums.put_nowait((f, cs))
+        await self.fs_checksums.put_nowait(None)
 
-    async def get_deleted_files(self):
-        pass
+    async def get_watched_files(self):
+        """
+        gets all existing watched files from the level db instance and checks them against
+        the filesystem
+        """
+
+        async for item in AsyncLevelDBIterator(db=self.snapshot):
+            f = item[0]
+            exists = await aiofiles.os.exists(f)
+            if not exists:
+                # the file was deleted/moved
+                await self.notify_all(type_="deleted", f=f[0])
+
+
     async def run(self):
         """run.
         """
-        # first, check the filesystem to get checksums
-        await self.get_fs_checksums()
-        # check for any files in the db that aren't in the computed checksums
-        await self.get_deleted_files()
-        # check the computed checksums against the db
-        await self.check_db_checksums())
-
-
+        await asyncio.gather(self.get_watched_files(), 
+                             self.get_current_checksums(), 
+                             self.verify_checksums())
