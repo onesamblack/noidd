@@ -4,6 +4,7 @@ import asyncio
 import plyvel
 from aiofile import AIOFile, Reader
 
+
 async def xxsum(filename: str) -> str:
     """calculates a filehash using xxHash
 
@@ -25,8 +26,8 @@ async def xxsum(filename: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-async def leveldb_aget(db:plyvel.DB, 
-                       key: str) -> str:
+
+async def leveldb_aget(db: plyvel.DB, key: str) -> str:
     """leveldb_aget.
 
     Parameters
@@ -44,9 +45,8 @@ async def leveldb_aget(db:plyvel.DB,
     v = await asyncio.to_thread(db.get(key.encode("utf-8")))
     return v
 
-async def leveldb_aput(db:plyvel.DB,
-                       key: str, 
-                       value: str):
+
+async def leveldb_aput(db: plyvel.DB, key: str, value: str):
     """leveldb_aput.
 
     Parameters
@@ -58,15 +58,15 @@ async def leveldb_aput(db:plyvel.DB,
     value : str
         value
     """
-       
+
     if type(value) == float:
         value = struct.pack("f", value)
     else:
         value = value.encode("utf-8")
     await asyncio.to_thread(db.put(key.encode("utf-8"), value))
 
-async def leveldb_adelete(db:plyvel.DB,
-        key: str):
+
+async def leveldb_adelete(db: plyvel.DB, key: str):
     """leveldb_adelete.
 
     Parameters
@@ -76,16 +76,17 @@ async def leveldb_adelete(db:plyvel.DB,
     key : str
         key
     """
-       
+
     await asyncio.to_thread(db.delete(key.encode("utf-8"), sync=True))
 
 
-class AsyncLevelDBIterator: 
+class AsyncLevelDBIterator:
     """
     see https://plyvel.readthedocs.io/en/latest/api.html#RawIterator
     for available kwargs
     """
-    def __init__(self, db:plyvel.DB, **kwargs):
+
+    def __init__(self, db: plyvel.DB, **kwargs):
         """__init__.
 
         Parameters
@@ -98,17 +99,17 @@ class AsyncLevelDBIterator:
         self.db = db
         self.iter_ = db.raw_iterator(**kwargs)
         self.iter_.seek_to_first()
+
     def valid(self):
-        """valid.
-        """
-        return self.iter_.valid() 
+        """valid."""
+        return self.iter_.valid()
+
     def __aiter__(self):
-        """__aiter__.
-        """
+        """__aiter__."""
         return self
+
     async def __anext__(self):
-        """__anext__.
-        """
+        """__anext__."""
         try:
             current_item = self.iter_.item()
             self.iter_.next()

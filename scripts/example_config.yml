@@ -1,7 +1,12 @@
 ---
 periodicity: 3600
 noidd_root: "/home/user/noidd"
+# defaults to noidd_root/noidd.db
 leveldb: ""
+# defaults to noidd_root/noidd.log
+    # if true - recreates the db from scratch
+    recreate: false
+logfile: ""
 watch:
   - name: "watch_etc"
     type: "dir"
