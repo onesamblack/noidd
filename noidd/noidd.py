@@ -9,7 +9,7 @@ import aiofiles.os
 import plyvel
 from watchers import Watcher
 from notifiers import *
-from utils import leveldb_aget
+from utils import leveldb_aget, float_decoder
 from typing import Sequence
 from yaml import load, dump
 
@@ -35,6 +35,13 @@ except Exception as e:
     sys.exit(1)
 
 print(config)
+
+logger = logging.getLogger('asyncio')  
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler('log_file.log')
+formatter = logging.Formatter('%(asctime)s : %(name)s  : %(funcName)s : %(levelname)s : %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 noidd_root = "/etc/noidd" if not config["noidd_root"] else config["noidd_root"]
 if not os.path.exists(noidd_root):
@@ -108,10 +115,14 @@ async def initialize():
             print(f"creating watch: {name} for {w['root_dir']}")
             pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
             print(pfx_db)
-            init_ts = await leveldb_aget(db=pfx_db, key="initialized")
+            init_ts = await leveldb_aget(
+                db=pfx_db, key="initialized", decoder=float_decoder
+            )
             if not init_ts:
+                print(f"{name} is not initialized")
                 initialized = False
             else:
+                print(f"{name} was initialized")
                 initialized = True
             watcher = Watcher(
                 name=name,

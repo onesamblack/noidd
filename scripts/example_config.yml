@@ -1,7 +1,7 @@
 ---
 noidd_root: ""
 leveldb: ""
-leveldb_recreate: false,
+leveldb_recreate: false
 logfile: ""
 loglevel: "debug"
 watch:
@@ -26,5 +26,5 @@ notifiers:
      - "+15512331518"
    batch: true
  - type: "stdout"
-   batch: false
+   batch: true
 

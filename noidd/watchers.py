@@ -1,4 +1,5 @@
 import plyvel
+import time
 import asyncio
 import aiofiles
 import aiopath
@@ -56,10 +57,20 @@ class Watcher:
         self.filelist = filelist
         self.root_dir = root_dir
         self.snapshot = self.db.snapshot()
+        try:
+            self.prefix = self.db.prefix.decode("utf-8")
+            print(f"initialization {self.prefix}")
+        except:
+            self.prefix = ""
         self.checksums = asyncio.Queue()
-        self.executor = ThreadPoolExecutor(max_workers=2)
         for n in self.notifiers:
             n.add_watcher()
+
+    async def close(self):
+        if not self.initialized:
+            # add an intialized timestamp
+            await leveldb_aput(db=self.db, key="initialized", value=time.time())
+        self.initialized = True
 
     async def notify_all(self, type_: str, **kwargs):
         print("notifying all")
@@ -71,50 +82,49 @@ class Watcher:
     async def verify_checksums(self):
         print("starting to verify checksums")
         while True:
-            messages = []
             f = await self.checksums.get()
-            self.checksums.task_done()
             print(f"got checksum from queue {f[0]}:{f[1]}")
             if not self.initialized:
                 # running for the first time
                 print(f"submitting {f[0]} -first time {self.checksums.qsize()}")
                 await leveldb_aput(db=self.db, key=f[0], value=f[1])
-                print("added f[0] to db")
+                print(f"added {f[0]} to db")
                 self.checksums.task_done()
             else:
+                print("getting existing keys")
                 cs = await leveldb_aget(db=self.db, key=f[0])
+                print(f"existing key: {cs}")
                 if cs is None:
                     # the checksum didn't exist - new file
                     # create a notification
+                    print("no checksum")
                     stat = await aiofiles.os.stat(str(f[0]))
                     st_time = stat.st_time
                     await self.notify_all(type_="created", f=f[0], t=st_time)
                     # add it
+                    print(f"submitting {f[0]} -created {self.checksums.qsize()}")
+
                     await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                    print(f"added {f[0]} to db")
                     self.checksums.task_done()
 
                 elif cs != f[1]:
+                    print("mismatch")
                     # the checksum didn't match
                     stat = await aiofiles.os.stat(str(f[0]))
                     st_time = stat.st_time
                     await self.notify_all(type_="modified", f=f[0], t=st_time)
                     # add it
+                    print(f"submitting {f[0]} -modified {self.checksums.qsize()}")
+
                     await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                    print(f"added {f[0]} to db")
                     self.checksums.task_done()
-                else:
+                elif cs == f[0]:
                     # checksum matched
                     print(f"matched checksum {f[0]}+{f[1]} cs:{cs}")
                     self.checksums.task_done()
-            if f is None:
-                # no more files to check
-                print("done")
-                await self.notify_all(type_="done")
-                break
-
-        if not self.initialized:
-            # add an intialized timestamp
-            await leveldb_aput(db=self.db, key="initialized", value=time.time())
-        print("completed verifying checksums")
+            print("completed verifying checksums")
 
     async def get_current_checksums(self):
         """get_fs_checksums."""
@@ -124,11 +134,13 @@ class Watcher:
                 file_ = await checkfile(f)
                 print(f"{file_}")
                 if not file_:
-                    print(f"a file: {f} to be watched doesn't exist on the filesystem")
+                    print(
+                        f"a file: {file_} to be watched doesn't exist on the filesystem"
+                    )
                 else:
                     cs = await xxsum(file_)
                     self.checksums.put_nowait((f, cs))
-                    print(f"put {cs} checksum in queue -getcurrent")
+                    print(f"put {file_} in queue -getcurrent")
                     print(self.checksums.qsize())
         else:
             # run the loop for file globs or root dir
@@ -138,9 +150,10 @@ class Watcher:
                 file_ = await checkfile(f)
                 cs = await xxsum(file_)
                 self.checksums.put_nowait((f, cs))
-                print(f"put checksum {cs} in queue -getcurrent")
+                print(f"put {file_} in queue -getcurrent")
                 print(self.checksums.qsize())
-            await self.checksums.put_nowait(None)
+            print("adding finish to queue")
+            await self.checksums.put(None)
         print("completed current checksums")
 
     async def get_watched_files(self):
@@ -148,19 +161,21 @@ class Watcher:
         gets all existing watched files from the level db instance and checks them against
         the filesystem
         """
-        print("starting get_watched")
-        async for item in AsyncLevelDBIterator(db=self.snapshot):
-            print(f"{item[0]}")
-            f = item[0]
-            file_ = await checkfile(f)
-            if not file_:
-                # the file was deleted/moved
-                print(f"delete message for {f[0]}")
-                await self.notify_all(type_="deleted", f=f[0])
-                # delete the hash from the db
-                await leveldb_adelete(db=self.db, key=f[0])
-        print("finished get watched")
-        return
+        if self.initialized:
+            print("starting get_watched")
+            async for item in AsyncLevelDBIterator(db=self.snapshot, exclude=[".+initialized"]):
+                if item is None:
+                    continue
+                f = item[0].decode("utf-8").lstrip(self.prefix)
+                print(f"getwatched - {f}")
+                file_ = await checkfile(f)
+                if not file_:
+                    # the file was deleted/moved
+                    print(f"delete message for {f}")
+                    await self.notify_all(type_="deleted", f=file_)
+                    # delete the hash from the db
+                    await leveldb_adelete(db=self.db, key=file_)
+            print("finished get watched")
 
     async def run(self):
         """run."""
@@ -172,3 +187,4 @@ class Watcher:
             ],
             return_exceptions=True,
         )
+        await self.close()
