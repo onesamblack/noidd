@@ -1,36 +1,30 @@
 ---
-periodicity: 3600
-noidd_root: "/home/user/noidd"
-# defaults to noidd_root/noidd.db
+noidd_root: ""
 leveldb: ""
-# defaults to noidd_root/noidd.log
-    # if true - recreates the db from scratch
-    recreate: false
+leveldb_recreate: false,
 logfile: ""
+loglevel: "debug"
 watch:
-  - name: "watch_etc"
+    #  - name: "watch_my_resolv_configs"
+    # type: "filelist"
+    #files:
+    #  - "/etc/resolv.conf"
+    # - "/lib/systemd/resolv.conf"
+  - name: "watch_pam"
     type: "dir"
-    root_dir: "/etc"
-  - name: "watch_all_c_files"
-    type: "glob"
-    glob: "/path/to/my/dir/*.cc"
-  - name: "watch_my_resolv_configs"
-    type: "filelist"
-    files:
-      - "/etc/resolv.conf"
-      - "/lib/systemd/systemdresolv.conf"
+    root_dir: "/etc/pam.d"
+#- name: "watch_etc_configs"
+#   type: "glob"
+#   root_dir: "/etc"
+#   glob: "*/*.conf"
 notifiers:
  - type: "twilio"
-   twilio_api_key: '...'
-   twilio_sid_token: '....'
-   twilio_from_number: '....'
-   recipient_numbers:
-     - "+15557655555"
-   batch: true
- - type: "smtp"
-   from_address: "dude@sup.com"
+   twilio_api_key: 'AC19106ec2e6b25f81dcfda4c38a540da8'
+   twilio_auth_sid_token: '19e837f2fb394c199dcdd1855dc85938'
+   twilio_from_number: '+19294162087'
    recipients:
-     - "peter@initech.com"
-     - "jim@dundermifflin"
-     - "THEmichaelbolton@initech.com"
-   template: "notifications.html"
+     - "+15512331518"
+   batch: true
+ - type: "stdout"
+   batch: false
+

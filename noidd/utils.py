@@ -2,7 +2,35 @@ import xxhash
 import struct
 import asyncio
 import plyvel
+import aiofiles
 from aiofile import AIOFile, Reader
+
+
+async def checkfile(filepath) -> str:
+    """checks for the existence of the file - if it exists,
+    checks to see if it's a symlink - if true, returns the
+    linked file
+
+    Parameters
+    ----------
+    filepath :
+        filepath
+
+    Returns
+    -------
+    str
+
+    """
+    exists = await aiofiles.os.path.exists(filepath)
+    if exists:
+        is_link = await aiofiles.os.path.islink(filepath)
+        if not is_link:
+            return filepath
+        else:
+            # followsymlink
+            link = await aiofiles.os.readlink(filepath)
+            return link
+    return None
 
 
 async def xxsum(filename: str) -> str:
@@ -42,8 +70,10 @@ async def leveldb_aget(db: plyvel.DB, key: str) -> str:
     str
 
     """
-    v = await asyncio.to_thread(db.get(key.encode("utf-8")))
-    return v
+    print("called aget")
+    await asyncio.to_thread(db.get, key.encode("utf-8"))
+    if v:
+        return v.decode("utf-8")
 
 
 async def leveldb_aput(db: plyvel.DB, key: str, value: str):
@@ -58,12 +88,13 @@ async def leveldb_aput(db: plyvel.DB, key: str, value: str):
     value : str
         value
     """
-
+    print("called aput")
     if type(value) == float:
         value = struct.pack("f", value)
     else:
         value = value.encode("utf-8")
-    await asyncio.to_thread(db.put(key.encode("utf-8"), value))
+    print("ok")
+    await asyncio.to_thread(db.put, key.encode("utf-8"), value)
 
 
 async def leveldb_adelete(db: plyvel.DB, key: str):
@@ -77,7 +108,7 @@ async def leveldb_adelete(db: plyvel.DB, key: str):
         key
     """
 
-    await asyncio.to_thread(db.delete(key.encode("utf-8"), sync=True))
+    await asyncio.to_thread(db.delete, key.encode("utf-8"), sync=True)
 
 
 class AsyncLevelDBIterator:

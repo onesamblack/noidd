@@ -1,113 +1,174 @@
+#!/usr/bin/python3
+
 import logging
 import argparse
-import yaml
+import os
 import sys
 import asyncio
+import aiofiles.os
+import plyvel
 from watchers import Watcher
 from notifiers import *
 from utils import leveldb_aget
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-c","--config", help="configuration file (.yml)", default="/etc/noidd/config.yml")
-args = parser.parse_args()
+from typing import Sequence
+from yaml import load, dump
 
 try:
-    config = yaml.loads(args.config)
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "-c", "--config", help="configuration file (.yml)", default="/etc/noidd/config.yml"
+)
+args = parser.parse_args()
+config = None
+try:
+    config = load(open(args.config).read(), Loader=Loader)
 
 except Exception as e:
-    print("couldn't initialize noidd - an exception occurred while loading the config.yml")
+    print(
+        "couldn't initialize noidd - an exception occurred while loading the config.yml"
+    )
     print(str(e))
     sys.exit(1)
 
+print(config)
 
 noidd_root = "/etc/noidd" if not config["noidd_root"] else config["noidd_root"]
-leveldb_file = f"{noid_root}/noidd.db" if not config["leveldb"] else config["leveldb"]
-logfile = f"{noid_root}/noidd.log" if not config["logfile"] else config["logfile"]
+if not os.path.exists(noidd_root):
+    try:
+        os.makedirs(noidd_root)
+    except Exception as e:
+        print(str(e))
 
-logging.basicConfig(filename=logfile,
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.DEBUG)
+leveldb_file = f"{noidd_root}/noidd.db" if not config["leveldb"] else config["leveldb"]
+logfile = f"{noidd_root}/noidd.log" if not config["logfile"] else config["logfile"]
 
-logging.info("Starting noidd")
 
-logger = logging.getLogger('noidd')
+loglevels = {"debug": logging.DEBUG, "info": logging.INFO}
 
 
 class Noidd:
+    """
+    convenience wrapper to run all the coroutines
+    """
+
     def __init__(self):
         self.watchers = []
         self.db = None
         self.complete = False
 
-async def db_initialize():
-    has_leveldb = await aiofiles.os.exists(leveldb_file)
-    if any(not has_leveldb, config["leveldb"]["recreate"]):
-        logger.info(f"creating a new db instance at {leveldb_file}")
+    def add_watchers(self, w: Sequence[Watcher]):
+        self.watchers.extend(w)
+
+    async def run(self):
+        return asyncio.gather(*[await w.run() for w in self.watchers])
+
+
+def db_initialize():
+    has_leveldb = os.path.exists(leveldb_file)
+    if any([not has_leveldb, config["leveldb_recreate"]]):
+        print(f"creating a new db instance at {leveldb_file}")
         create = True
     else:
-        logger.info(f"found an existing db")
+        print(f"found an existing db")
         create = False
 
-    db = await asyncio.to_thread(plyvel.DB(leveldb_file, create_if_not_exists=create))
+    db = plyvel.DB(leveldb_file, create_if_missing=create)
     return db
-    
+
 
 async def initialize():
-    db = await(db_initialize())
-    logger.info("initializing")
+    db = db_initialize()
+    print("initializing")
     noidd = Noidd()
     notifiers = []
-    watchers = [] 
+    watchers = []
+    # setup notifiers
+    print("initializing notifiers")
     for n in config["notifiers"]:
         if n["type"] == "twilio":
-            n = TwilioNotifier(twilio_api_key=n["twilio_api_key"], twilio_auth_sid_token=n["twilio_auth_sid_token"], from_number=n["twilio_from_number"], recipient_numbers=n["recipients"], batch=n["batch"])
-        if n['type'] == "stdout":
-
+            notif = TwilioNotifier(
+                twilio_api_key=n["twilio_api_key"],
+                twilio_auth_sid_token=n["twilio_auth_sid_token"],
+                from_number=n["twilio_from_number"],
+                recipient_numbers=n["recipients"],
+                batch=n["batch"],
+            )
+        if n["type"] == "stdout":
+            notif = StdoutNotifier(batch=n["batch"])
+        notifiers.append(notif)
+    # setup watchers
+    print("initializing watchers")
     for w in config["watch"]:
-        n = w["name"]
+        name = w["name"]
         if w["type"] == "dir":
-            logger.info(f"creating watch: {name} for {w['root_dir']}")
-            pfx_db = db.prefixed_db(f"{name}_")
-            init_ts = await leveldb_aget(db = pfxdb, key="initialized")
+            print(f"creating watch: {name} for {w['root_dir']}")
+            pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
+            print(pfx_db)
+            init_ts = await leveldb_aget(db=pfx_db, key="initialized")
             if not init_ts:
                 initialized = False
             else:
                 initialized = True
-            watcher = Watcher(name=n, db=pfx_db, initialized=initialized, notifiers=notifiers, root_dir=w["root_dir"])
+            watcher = Watcher(
+                name=name,
+                db=pfx_db,
+                initialized=initialized,
+                notifiers=notifiers,
+                root_dir=w["root_dir"],
+            )
             watchers.append(watcher)
         if w["type"] == "glob":
-            logger.info(f"creating watch: {name} with glob: {w['glob']}")
-            pfx_db = db.prefixed_db(f"{name}_")
-            init_ts = await leveldb_aget(db = pfxdb, key="initialized")
+            print(f"creating watch: {name} with glob: {w['glob']}")
+            pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
+            print(pfx_db)
+            init_ts = await leveldb_aget(db=pfx_db, key="initialized")
             if not init_ts:
                 initialized = False
             else:
                 initialized = True
-            watcher = Watcher(name=n, db=pfx_db, initialized=initialized, notifiers=notifiers, root_glob=w["glob"])
+            watcher = Watcher(
+                name=name,
+                db=pfx_db,
+                initialized=initialized,
+                notifiers=notifiers,
+                glob=w["glob"],
+                root_dir=w["root_dir"],
+            )
             watchers.append(watcher)
         if w["type"] == "filelist":
-            logger.info(f"creating watch: {name} with filelist")
-            pfx_db = db.prefixed_db(f"{name}_")
-            init_ts = await leveldb_aget(db = pfxdb, key="initialized")
+            print(f"creating watch: {name} with filelist")
+            pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
+            print(pfx_db)
+
+            init_ts = await leveldb_aget(db=pfx_db, key="initialized")
             if not init_ts:
                 initialized = False
             else:
                 initialized = True
-            watcher = Watcher(name=n, db=pfx_db, initialized=initialized, notifiers=notifiers, root_filelist=w["filelist"])
+            watcher = Watcher(
+                name=name,
+                db=pfx_db,
+                initialized=initialized,
+                notifiers=notifiers,
+                filelist=w["files"],
+            )
             watchers.append(watcher)
 
+    noidd.add_watchers(watchers)
+    return noidd
 
 
+async def main():
+    noidd = await initialize()
+    coros = [w.run() for w in noidd.watchers]
+    await asyncio.gather(*coros)
 
-
-def main(noidd):
-    pass
-    
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(initialize())
-    loop.run_forever(main())
+    loop.run_until_complete(main())
+    loop.close()
