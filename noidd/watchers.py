@@ -7,6 +7,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from notifiers import Notifier
 from utils import (
+    timestring,
     xxsum,
     checkfile,
     leveldb_aput,
@@ -29,6 +30,7 @@ class Watcher:
         name: str,
         db: plyvel.DB,
         initialized: bool,
+        db_lock:asyncio.Lock,
         notifiers: Sequence[Notifier],
         glob: Optional[str] = None,
         filelist: Optional[Sequence] = None,
@@ -52,11 +54,13 @@ class Watcher:
         self._loop = loop or asyncio.get_event_loop()
         self.db = db
         self.initialized = initialized
+        self._lock = db_lock
         self.notifiers = notifiers
         self.glob = glob
         self.filelist = filelist
         self.root_dir = root_dir
         self.snapshot = self.db.snapshot()
+        self._lock = asyncio.Lock()
         try:
             self.prefix = self.db.prefix.decode("utf-8")
             print(f"initialization {self.prefix}")
@@ -66,10 +70,11 @@ class Watcher:
         for n in self.notifiers:
             n.add_watcher()
 
+    
     async def close(self):
         if not self.initialized:
             # add an intialized timestamp
-            await leveldb_aput(db=self.db, key="initialized", value=time.time())
+            await leveldb_aput(db=self.db,lock=self._lock, key="initialized", value=time.time())
         self.initialized = True
 
     async def notify_all(self, type_: str, **kwargs):
@@ -87,12 +92,12 @@ class Watcher:
             if not self.initialized:
                 # running for the first time
                 print(f"submitting {f[0]} -first time {self.checksums.qsize()}")
-                await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                await leveldb_aput(db=self.db, lock=self._lock, key=f[0], value=f[1])
                 print(f"added {f[0]} to db")
                 self.checksums.task_done()
             else:
                 print("getting existing keys")
-                cs = await leveldb_aget(db=self.db, key=f[0])
+                cs = await leveldb_aget(db=self.db, lock=self._lock, key=f[0])
                 print(f"existing key: {cs}")
                 if cs is None:
                     # the checksum didn't exist - new file
@@ -100,11 +105,11 @@ class Watcher:
                     print("no checksum")
                     stat = await aiofiles.os.stat(str(f[0]))
                     st_time = stat.st_time
-                    await self.notify_all(type_="created", f=f[0], t=st_time)
+                    await self.notify_all(type_="created", f=f[0], t=timestring(st_time))
                     # add it
                     print(f"submitting {f[0]} -created {self.checksums.qsize()}")
 
-                    await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                    await leveldb_aput(db=self.db, lock=self._lock, key=f[0], value=f[1])
                     print(f"added {f[0]} to db")
                     self.checksums.task_done()
 
@@ -113,11 +118,11 @@ class Watcher:
                     # the checksum didn't match
                     stat = await aiofiles.os.stat(str(f[0]))
                     st_time = stat.st_time
-                    await self.notify_all(type_="modified", f=f[0], t=st_time)
+                    await self.notify_all(type_="modified", f=f[0], t=timestring(st_time))
                     # add it
                     print(f"submitting {f[0]} -modified {self.checksums.qsize()}")
 
-                    await leveldb_aput(db=self.db, key=f[0], value=f[1])
+                    await leveldb_aput(db=self.db, lock=self._lock, key=f[0], value=f[1])
                     print(f"added {f[0]} to db")
                     self.checksums.task_done()
                 elif cs == f[0]:
@@ -174,7 +179,7 @@ class Watcher:
                     print(f"delete message for {f}")
                     await self.notify_all(type_="deleted", f=file_)
                     # delete the hash from the db
-                    await leveldb_adelete(db=self.db, key=file_)
+                    await leveldb_adelete(db=self.db, lock=self._lock, key=file_)
             print("finished get watched")
 
     async def run(self):

@@ -98,8 +98,9 @@ async def initialize():
     for n in config["notifiers"]:
         if n["type"] == "twilio":
             notif = TwilioNotifier(
+                twilio_account_sid=n["twilio_account_sid"],
                 twilio_api_key=n["twilio_api_key"],
-                twilio_auth_sid_token=n["twilio_auth_sid_token"],
+                twilio_api_secret=n["twilio_api_secret"],
                 from_number=n["twilio_from_number"],
                 recipient_numbers=n["recipients"],
                 batch=n["batch"],

@@ -7,6 +7,7 @@ import sys
 import jinja2
 import time
 import struct
+from functools import partial
 from string import Template
 from typing import Union, Sequence
 from twilio.rest import Client as TwilioClient
@@ -37,7 +38,6 @@ class Notifier:
         self.watch_count = 0
 
     def add_watcher(self):
-        print("added watch")
         self.watch_count += 1
 
     def digest(self, timestamp, message):
@@ -52,7 +52,7 @@ class Notifier:
         pass
 
     @classmethod
-    def make_notification(cls, type_, format_, **kwargs) -> Union[dict, str]:
+    def make_notification(cls, type_, format_, *args, **kwargs) -> Union[dict, str]:
         """
         This is an internal class method called by ```notify```
 
@@ -69,7 +69,7 @@ class Notifier:
         Union[dict,str]
 
         """
-        ts = time.now()
+        ts = time.time()
         message = cls.messages[type_].substitute(**kwargs)
         if format_ == "json":
             return json.dumps(
@@ -82,7 +82,7 @@ class Notifier:
         elif format_ == "py":
             return {"timestamp": ts, "message": message}
 
-    async def notify(self, type_, **kwargs):
+    async def notify(self, type_, *args, **kwargs):
         """create and send a notification. This is called by a `Watcher`
 
         Parameters
@@ -93,7 +93,6 @@ class Notifier:
             any number of format arguments. See the class variable `messages`
             for accepted arguments
         """
-        print(f"recieved notification {type_}")
         if type_ == "done":
             # reduce the watch count by 1
             self.watch_count -= 1
@@ -102,9 +101,9 @@ class Notifier:
                 await self.flush()
         else:
             notification = Notifier.make_notification(
-                type_=type_, message=message, format_=self.format, **kwargs
+                type_=type_, format_=self.message_format, *args, **kwargs
             )
-            await self.send_notification(notification, *args, **kwargs)
+            await self.send_notification(notification, **kwargs)
 
     async def send_notification(self, notification, *args, **kwargs):
         """
@@ -121,15 +120,14 @@ class Notifier:
 
 class StdoutNotifier(Notifier):
     """StdoutNotifier."""
-
-    message_template = jinja2.Template(
-        """
+    jinja_env = jinja2.Environment(enable_async=True)
+    message = """
         Noidd detected changes to the filesystem:
         {% for m in messages %}
-         - {{ str(m) }}
+         - {{ m }}
         {% endfor %}
     """
-    )
+    message_template = jinja_env.from_string(message)
 
     def __init__(self, batch: bool = False, message_limit: int = 15):
         """__init__.
@@ -155,14 +153,14 @@ class StdoutNotifier(Notifier):
         """
 
         messages_to_send = []
-        if queue.empty():
+        if self.queue.empty():
             return None
         while not self.queue.empty() and len(messages_to_send) <= self.message_limit:
             m = await self.queue.get()
             messages_to_send.append(m)
             self.queue.task_done()
 
-        message = StdoutNotifier.message_template.render_async(messages_to_send)
+        message = await StdoutNotifier.message_template.render_async({"messages": messages_to_send})
         return message
 
     async def _send_message(self, message: str):
@@ -187,7 +185,6 @@ class StdoutNotifier(Notifier):
             if not self.queue.full():
                 self.queue.put_nowait(notification["message"])
             else:
-                print(f"batch full")
                 # wait for a queue flush
                 await self.flush()
                 # add the message
@@ -208,39 +205,37 @@ class StdoutNotifier(Notifier):
         message = await self._get_batched_message()
         if message is not None:
             await self._send_message(message)
-        if self.watch_count == 0:
-            await self.queue.flush()
-
 
 class TwilioNotifier(Notifier):
     """TwilioNotifier."""
-
-    message_template = jinja2.Template(
-        """
-        Noidd detected changes to the filesystem:
+    jinja_env = jinja2.Environment(enable_async=True)
+    message = """
+        noidd detected changes to the filesystem:
         {% for m in messages %}
-         - {{ str(m) }}
+         - {{ m }}
         {% endfor %}
     """
-    )
+    message_template = jinja_env.from_string(message)
+
 
     def __init__(
         self,
-        twilio_api_key: str,
-        twilio_auth_sid_token: str,
+        twilio_account_sid: str,
+        twilio_auth_token:str,
         from_number: str,
         recipient_numbers: Sequence,
         batch: bool = False,
         message_limit: int = 15,
+        live=True
     ):
         """__init__.
 
         Parameters
         ----------
-        twilio_api_key : str
-            twilio_api_key
-        twilio_auth_sid_token : str
-            twilio_auth_sid_token
+        twilio_account_sid : str
+            twilio_account_sid
+        twlio_api_key : str
+            twlio_api_key
         from_number : str
             the twilio from number
         recipient_numbers : Sequence
@@ -250,14 +245,16 @@ class TwilioNotifier(Notifier):
 
         """
         super().__init__()
-        self.twilio_api_key = twilio_api_key
-        self.twilio_auth_sid_token = twilio_auth_sid_token
+        self.twilio_account_sid = twilio_account_sid
+        self.twilio_auth_token = twilio_auth_token
         self.from_ = from_number
         self.recipients = recipient_numbers
         self.batch = batch
         self.message_limit = message_limit
         self.message_queue = asyncio.Queue(maxsize=message_limit)
-        self.client = TwilioClient(twilio_api_key, twilio_auth_sid_token)
+        self.client = TwilioClient(twilio_account_sid, twilio_auth_token)
+        self.messages_send = []
+        self.live = live
 
     async def _send_twilio_message(self, message, recipient):
         """sends a message to a single recipient via Twilio's api
@@ -269,13 +266,22 @@ class TwilioNotifier(Notifier):
         recipient :
             recipient number, formatted as `+11231234567`
         """
-        print(f"sending twilio message")
-        resp = await asyncio.to_thread(
-            self.client.messages.create, to_=recipient, from_=self.from_, body=message
-        )
-        print("sent twilio message")
+        def not_live(to_= None, from_=None, body=None):
+            message = f"Not live: {to_}, from: {from_}, body: {body}"
+            fn = partial(print, f"Not live: {to_}, from: {from_}, body: {body}")
+            return fn
+        if self.live:
+            resp = await asyncio.to_thread(
+                self.client.messages.create, to=recipient, from_=self.from_, body=message
+            )
+            return resp
+        else:
+            resp = await asyncio.to_thread(
+                not_live(to_=recipient, from_=self.from_, body=message)
+            )
+            return resp
 
-    async def _send_message(message):
+    async def _send_message(self, message):
         """_send_message internal method
 
         Parameters
@@ -286,8 +292,9 @@ class TwilioNotifier(Notifier):
 
         send_func = partial(self._send_twilio_message, message=message)
         coros = [send_func(recipient=x) for x in self.recipients]
-        await asyncio.gather(*coros)
-
+        print(coros)
+        responses = await asyncio.gather(*coros)
+        return responses
     async def _get_batched_message(self) -> str:
         """gets a string representing a message batch.
         Called when the queue is full
@@ -298,14 +305,14 @@ class TwilioNotifier(Notifier):
         """
 
         messages_to_send = []
-        if queue.empty():
+        if self.queue.empty():
             return None
         while not self.queue.empty() and len(messages_to_send) <= self.message_limit:
             m = await self.queue.get()
             messages_to_send.append(m)
             self.queue.task_done()
 
-        message = TwilioNotifier.message_template.render_async(messages_to_send)
+        message = await TwilioNotifier.message_template.render_async({"messages":messages_to_send})
         return message
 
     async def send_notification(self, notification, *args, **kwargs):

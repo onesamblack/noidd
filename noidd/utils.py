@@ -4,19 +4,34 @@ import struct
 import asyncio
 import plyvel
 import aiofiles
-import threading
+import pytz
+from datetime import datetime
 from aiofile import AIOFile, Reader
 from typing import Sequence, Callable, Optional, Any
+from functools import wraps
+
+
+UTC = pytz.utc
+Eastern = pytz.timezone("US/Eastern")
+
+def timestring(timestamp):
+    """
+    all timezones reported are utc - convert them to eastern
+    """
+    dt = datetime.fromtimestamp(timestamp, UTC)
+    eastern = dt.astimezone(Eastern)
+    return eastern.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def float_encoder(val: float) -> bytes:
-    v = struct.pack("f", val)
-    return v
+    buf = bytearray(8)
+    v = struct.pack_into("f", buf, 0, val)
+    return bytes(buf)
 
 
 def float_decoder(val: bytes) -> float:
-    v = struct.unpack("f", val)
-    return v
+    v = struct.unpack_from("f", val)
+    return v[0]
 
 
 def utf8_str_encoder(val: str) -> bytes:
@@ -25,6 +40,9 @@ def utf8_str_encoder(val: str) -> bytes:
 
 def utf8_str_decoder(val: bytes) -> str:
     return val.decode("utf-8")
+
+
+
 
 
 async def checkfile(filepath) -> str:
@@ -76,8 +94,9 @@ async def xxsum(filename: str) -> str:
     return h.hexdigest()
 
 
+
 async def leveldb_aget(
-    db: plyvel.DB, key: str, decoder: Optional[Callable[[bytes], str]] = None
+        db: plyvel.DB, lock:asyncio.Lock, key: str, decoder: Optional[Callable[[bytes], Any]] = None
 ) -> str:
     """leveldb_aget.
 
@@ -93,20 +112,17 @@ async def leveldb_aget(
     str
 
     """
-    print("called aget")
     if not decoder:
         decoder = utf8_str_decoder
-    result = await asyncio.to_thread(db.get, key.encode("utf-8"))
-    if result:
-        try:
-            result = decoder(result)
-        except Exception as e:
-            print(e)
-    return result
+    async with lock:
+        result = await asyncio.to_thread(db.get, key.encode("utf-8"))
+        if result:
+            value = decoder(result)
+            return value
 
 
 async def leveldb_aput(
-    db: plyvel.DB, key: str, value: Any, encoder: Callable[[Any], bytes]=None
+    db: plyvel.DB, lock:asyncio.Lock, key: str, value: Any, encoder: Callable[[Any], bytes]=None
 ):
     """leveldb_aput.
 
@@ -119,15 +135,14 @@ async def leveldb_aput(
     value : str
         value
     """
-    print("called aput")
     if not encoder:
         encoder = utf8_str_encoder
     encoded_value = encoder(value)
-    print(f"encoded value {encoded_value}")
-    res = await asyncio.to_thread(db.put, key.encode("utf-8"), encoded_value)
-    return res
+    async with lock:
+        res = await asyncio.to_thread(db.put, key.encode("utf-8"), encoded_value)
+        return res
 
-async def leveldb_adelete(db: plyvel.DB, key: str):
+async def leveldb_adelete(db: plyvel.DB, lock:asyncio.Lock,  key: str):
     """leveldb_adelete.
 
     Parameters
@@ -137,9 +152,10 @@ async def leveldb_adelete(db: plyvel.DB, key: str):
     key : str
         key
     """
-
-    res = await asyncio.to_thread(db.delete, key.encode("utf-8"), sync=True)
-    return res
+    
+    async with lock:
+        res = await asyncio.to_thread(db.delete, key.encode("utf-8"), sync=True)
+        return res
 class AsyncLevelDBIterator:
     """
     see https://plyvel.readthedocs.io/en/latest/api.html#RawIterator
