@@ -14,6 +14,7 @@ clean:
 	# Remove all pycache
 	find . | grep -E "(__pycache__|\.pyc|\.pyo)" | xargs rm -rf
 	rm -rf test/test_files
+	rm -rf test/__pycache__
 
 test: clean
 	python3 -m unittest discover -s test

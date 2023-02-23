@@ -34,15 +34,6 @@ except Exception as e:
     print(str(e))
     sys.exit(1)
 
-print(config)
-
-logger = logging.getLogger('asyncio')  
-logger.setLevel(logging.INFO)
-handler = logging.FileHandler('log_file.log')
-formatter = logging.Formatter('%(asctime)s : %(name)s  : %(funcName)s : %(levelname)s : %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
 noidd_root = "/etc/noidd" if not config["noidd_root"] else config["noidd_root"]
 if not os.path.exists(noidd_root):
     try:
@@ -54,9 +45,6 @@ leveldb_file = f"{noidd_root}/noidd.db" if not config["leveldb"] else config["le
 logfile = f"{noidd_root}/noidd.log" if not config["logfile"] else config["logfile"]
 
 
-loglevels = {"debug": logging.DEBUG, "info": logging.INFO}
-
-
 class Noidd:
     """
     convenience wrapper to run all the coroutines
@@ -66,9 +54,11 @@ class Noidd:
         self.watchers = []
         self.db = None
         self.complete = False
+        self.fs_integrity = []
+        self.interactive = []
 
-    def add_watchers(self, w: Sequence[Watcher]):
-        self.watchers.extend(w)
+    def add_watcher(self, type_:str, w):
+        self.watchers.append(w)
 
     async def run(self):
         return asyncio.gather(*[await w.run() for w in self.watchers])
@@ -110,20 +100,16 @@ async def initialize():
         notifiers.append(notif)
     # setup watchers
     print("initializing watchers")
-    for w in config["watch"]:
+    for w in config["watchers"]["integrity"]:
         name = w["name"]
         if w["type"] == "dir":
-            print(f"creating watch: {name} for {w['root_dir']}")
             pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
-            print(pfx_db)
             init_ts = await leveldb_aget(
                 db=pfx_db, key="initialized", decoder=float_decoder
             )
             if not init_ts:
-                print(f"{name} is not initialized")
                 initialized = False
             else:
-                print(f"{name} was initialized")
                 initialized = True
             watcher = Watcher(
                 name=name,
@@ -134,7 +120,6 @@ async def initialize():
             )
             watchers.append(watcher)
         if w["type"] == "glob":
-            print(f"creating watch: {name} with glob: {w['glob']}")
             pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
             print(pfx_db)
             init_ts = await leveldb_aget(db=pfx_db, key="initialized")
@@ -152,10 +137,7 @@ async def initialize():
             )
             watchers.append(watcher)
         if w["type"] == "filelist":
-            print(f"creating watch: {name} with filelist")
             pfx_db = db.prefixed_db(f"{name}_".encode("utf-8"))
-            print(pfx_db)
-
             init_ts = await leveldb_aget(db=pfx_db, key="initialized")
             if not init_ts:
                 initialized = False
