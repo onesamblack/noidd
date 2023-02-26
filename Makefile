@@ -16,5 +16,6 @@ clean:
 	rm -rf test/test_files
 	rm -rf test/__pycache__
 
-test: clean
+run_tests: clean
 	python3 -m unittest discover -s test
+
