@@ -17,7 +17,6 @@ from noidd.utils import timestring
 
 fnames = []
 config = None
-live = True
 
 
 def setUpModule():
@@ -79,7 +78,7 @@ class TestTwilioNotifier(asynctest.TestCase):
         )
 
         self.notifier.add_watcher()
-        for i in range(0, 3):
+        for i in range(0, 10):
             rand = random.randint(0, 2)
             choices = ["deleted", "created", "modified"]
             choice = choices[rand]
@@ -104,13 +103,11 @@ class TestTwilioNotifier(asynctest.TestCase):
         )
 
         self.notifier.add_watcher()
-        for i in range(0, 5):
+        for i in range(0, 25):
             rand = random.randint(0, 2)
             choices = ["deleted", "created", "modified"]
             choice = choices[rand]
-            if i < 3:
-                await self.notifier.notify(
-                    type_=choice, f=fnames[i], t=timestring(time.time())
-                )
-            else:
-                await self.notifier.notify(type_="done")
+            await self.notifier.notify(
+                type_=choice, f=fnames[i], t=timestring(time.time())
+            )
+        await self.notifier.notify(type_="done")

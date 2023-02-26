@@ -1,5 +1,6 @@
 import xxhash
 import re
+import os
 import struct
 import asyncio
 import plyvel
@@ -69,7 +70,11 @@ async def checkfile(filepath) -> str:
         else:
             if is_link:
                 link = await aiofiles.os.readlink(filepath)
-                return (link, False)
+                linkpath = os.path.realpath(filepath)
+                if linkpath == "/dev/null":
+                    return (None, False)
+                else:
+                    return (linkpath, False)
             if is_dir:
                 return (filepath, True)
     return (None, False)
