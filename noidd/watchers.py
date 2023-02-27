@@ -20,6 +20,7 @@ from utils import (
 )
 from typing import Optional, Sequence, Union
 
+
 class Watcher:
     """
     Watchers compute checksums for all the files, specified by a directory:glob pair or by a list of files
@@ -183,7 +184,7 @@ class Watcher:
                 # run the loop for file globs or root dir
                 ptn = d["glob"]
                 dir_ = d["path"]
-                async for f in aiopath.AsyncPath(dir_).glob(ptn):
+                async for f in aiopath.AsyncPath(dir_).rglob(ptn):
                     file_, isdir = await checkfile(f)
                     if not file_:
                         continue
@@ -219,6 +220,7 @@ class Watcher:
                     if not file_:
                         # the file was deleted/moved
                         self.notifications += 1
+                        print(f"deleted {file_}")
                         coros = self.notify_all(type_="deleted", f=f)
                         await asyncio.gather(*coros)
                         # delete the hash from the db on close - avoiding

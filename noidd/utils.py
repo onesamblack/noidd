@@ -96,7 +96,7 @@ async def xxsum(filename: str) -> str:
     """
     h = xxhash.xxh64()
     async with AIOFile(filename, "rb") as f:
-        reader = Reader(f, chunk_size=512)
+        reader = Reader(f, chunk_size=4096)
         async for chunk in reader:
             h.update(chunk)
     return h.hexdigest()

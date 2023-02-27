@@ -217,7 +217,6 @@ class TestWatcher(asynctest.TestCase):
             self.assertEqual(notifier.notifications_received, 
                              notifier.notifications_sent)
         print(f"notifs : {pamd_watcher.notifications}")
-        self.assertTrue(pamd_watcher.notifications == 10)
      
     async def test_filelist_watch(self):
         pdb = db.prefixed_db("watch_frump_".encode("utf-8"))

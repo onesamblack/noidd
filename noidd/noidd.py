@@ -61,6 +61,8 @@ class Noidd:
 def db_initialize():
     has_leveldb = os.path.exists(leveldb_file)
     if any([not has_leveldb, config["leveldb_recreate"]]):
+        print(has_leveldb)
+        print(config["leveldb_recreate"])
         print(f"creating a new db instance at {leveldb_file}")
         create = True
     else:
@@ -80,13 +82,14 @@ async def initialize():
     # setup notifiers
     print("initializing notifiers")
     for n in config["notifiers"]:
+        print(n)
         if n["type"] == "twilio":
             notif = TwilioNotifier(
                 twilio_account_sid=n["twilio_account_sid"],
                 twilio_auth_token=n["twilio_auth_token"],
                 from_number=n["twilio_from_number"],
                 recipient_numbers=n["recipients"],
-                batch=True,
+                batch=n["batch"],
             )
         if n["type"] == "stdout":
             notif = StdoutNotifier(batch=n["batch"])
@@ -107,6 +110,7 @@ async def initialize():
         
         directories = w.get("directories",[])
         filelist = w.get("files", [])
+        assert(len(notifiers) > 0, "must have at least one configured notifier")
         watcher = Watcher(
             name=name,
             db=pfx_db,
@@ -120,9 +124,10 @@ async def initialize():
     return noidd
 
 
-async def main():
+async def run_noidd():
     noidd = await initialize()
     await noidd.run()
 
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(run_noidd())
