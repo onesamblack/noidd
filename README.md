@@ -16,15 +16,20 @@ It provides one primary component
 
 ## Design
 
+As described, this is primarily for checking filesystems and maintaining integrity, not attempting to emulate more complex tasks like those in watchman or other watch type libraries
+
 Noidd (in its current state) runs as a cron-able task
 
 On first run, a checksum for all files (in your configurable watchlists) is created and stored in a leveldb instance.
 
 On subsequent runs, a checksum is created and checked against the original, if changed, a notification is sent to one or more of your configurable sources.
 
+This also includes a notifier that pipes to stdout, which could be used with a daemon of your own which does something special that you like when a specific file or other is changed.
+
+
 ## Wishlists/Todo
 
-Some integration with inotify would make sense (similar to Facebook's watchman), but with much less confusion.
+Some integration with inotify would make sense (similar to watchman), but with much less confusion.
 
 ## Usage
 
