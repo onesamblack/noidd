@@ -9,16 +9,9 @@ This could help you:
 2) Stop a "team" member from installing a backdoor which modifies your network configuration(s) after you just spent 20 hours rebuilding 10 instances
 3) Catch someone while they're outright deleting sh#t from the fs
 
-*Think I'm paranoid?*
-
-It happens, all the time. If someone can "disrupt" your fancy new project enough, that could be the difference between a promotion and a layoff.
-
-
 It provides one primary components
 
 - File system integrity: checks for unplanned changes to system binaries, configuration files or other important system files
-
-Noid.d was created in response to insider sabotage while working sec-ops [Don't ever do ops] at a large tech company. 
 
 
 ## Design
