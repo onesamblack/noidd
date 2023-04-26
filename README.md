@@ -2,25 +2,29 @@
 
 Noid.d is designed to prevent malevolent actors (internal/external) from altering files on your fs - and to quickly notify you if they do.
 
-While external threats can be mitigated with strong auth and firewalls, few tools exist to combat insider threats - people with access to your cloud, developers on your "team" and people with privileged access to your machines who just don't like you :)
+While external threats can be mitigated with strong auth and firewalls, few tools exist to combat insider threats - people with access to your cloud, rogue developers in your comoany or organization and people with privileged access to your machines.
 
 This could help you:
 1) Stop someone from installing a kernel level rootkit
 2) Stop a "team" member from installing a backdoor which modifies your network configuration(s) after you just spent 20 hours rebuilding 10 instances
 3) Catch someone while they're outright deleting sh#t from the fs
 
-It provides one primary components
+It provides one primary component
 
 - File system integrity: checks for unplanned changes to system binaries, configuration files or other important system files
 
 
 ## Design
 
+Noidd (in its current state) runs as a cron-able task
 
-Similarly, if a file is modified, created or deleted in the directory being watched, an alert is generated. These two processes are meant to catch stealth
+On first run, a checksum for all files (in your configurable watchlists) is created and stored in a leveldb instance.
 
-If an alert is generated, a notification is sent via a configurable notification source.
+On subsequent runs, a checksum is created and checked against the original, if changed, a notification is sent to one or more of your configurable sources.
 
+## Wishlists/Todo
+
+Some integration with inotify would make sense (similar to Facebook's watchman), but with much less confusion.
 
 ## Usage
 
@@ -37,7 +41,6 @@ pip3 install noidd
 
 ```yml
 ---
-checksum_period: 3600
 watch_directories:
  - ...
 watch_files:
@@ -51,13 +54,14 @@ notification_sources:
    twilio_api_key: '...'
    twilio_sid_token: '....'
    twilio_from_number: '....'
- - amazon_sns:
- - onesignal:
+ - amazon_sns: [not implemented]
+ - onesignal: [not implemented]
 ```
 
-- start the daemon
-```
-noidd --start-daemon [opts]
+Add it to a crontab or other scheduler
+
+```crontab
+* */2 * * * noidd [opts]
 ```
 
 Run `noidd --help` for a list of all options
@@ -70,19 +74,8 @@ Run `noidd --help` for a list of all options
 apt install leveldb
 ```
 
-
 **inotify-tools**:
 
 ```
 apt install inotify-tools
 ```
-
-
-
-
-
-   
-
-
-
-
