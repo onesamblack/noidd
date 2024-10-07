@@ -2,12 +2,12 @@
 
 Noid.d is designed to prevent malevolent actors (internal/external) from altering files on your fs - and to quickly notify you if they do.
 
-While external threats can be mitigated with strong auth and firewalls, few tools exist to combat insider threats - people with access to your cloud, rogue developers in your comoany or organization and people with privileged access to your machines.
+While external threats can be mitigated with strong auth and firewalls, few tools exist to combat insider threats - people with access to your cloud, rogue developers in your company or organization and people with privileged access to your machines.
 
 This could help you:
 1) Stop someone from installing a kernel level rootkit
 2) Stop a "team" member from installing a backdoor which modifies your network configuration(s) after you just spent 20 hours rebuilding 10 instances
-3) Catch someone while they're outright deleting sh#t from the fs
+3) Catch someone while they're outright deleting files from the fs
 
 It provides one primary component
 
